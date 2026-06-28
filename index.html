@@ -14,6 +14,8 @@
   button { flex:1; padding:14px; font-size:16px; font-weight:600; border:none; border-radius:10px; color:#fff; }
   #startBtn { background:#16a34a; }
   #stopBtn  { background:#dc2626; }
+  #torchBtn { background:#475569; flex:0 0 56px; font-size:22px; padding:14px 0; }
+  #torchBtn.on { background:#f59e0b; }
   button:disabled { opacity:.4; }
   #status { margin:0 16px 8px; padding:12px 14px; border-radius:10px; background:#1e293b; font-size:15px; }
   #status.ok  { background:#14532d; }
@@ -32,6 +34,7 @@
 <div class="bar">
   <button id="startBtn">Scan starten</button>
   <button id="stopBtn" disabled>Stopp</button>
+  <button id="torchBtn" disabled title="Taschenlampe">🔦</button>
 </div>
 <div id="status">Bereit. Auf „Scan starten" tippen.</div>
 <div class="count" id="count"></div>
@@ -39,10 +42,10 @@
 
 <script>
 /*** Konfiguration ***/
-const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbw4OK6t9DtZZZDhXOZLPQOYqcd7LO4sPK0pjCFfCvxOjaJC31VdFsPPv53rrQkLdjWTjA/exec';      // ...script.google.com/macros/s/.../exec
-const TOKEN           = 'sn7Qe2vKptaX8'; // identisch zu SECRET im Code.gs
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbw4OK6t9DtZZZDhXOZLPQOYqcd7LO4sPK0pjCFfCvxOjaJC31VdFsPPv53rrQkLdjWTjA/exec';
+const TOKEN           = 'sn7Qe2vKptaX8';
 
-let html5QrCode = null, lastCode = '', lastTime = 0, sessionCount = 0;
+let html5QrCode = null, lastCode = '', lastTime = 0, sessionCount = 0, torchOn = false;
 
 const formats = [
   Html5QrcodeSupportedFormats.CODE_128,
@@ -100,27 +103,16 @@ function addRow(code, cls, tag){
 document.getElementById('startBtn').onclick = function(){
   setStatus('Frage Kamera an …', '');
   html5QrCode = new Html5Qrcode('reader', { formatsToSupport: formats });
+
+  const videoConstraints = {
+    facingMode: 'environment',
+    width:  { ideal: 1920 },
+    height: { ideal: 1080 },
+    advanced: [{ focusMode: 'continuous' }]
+  };
+
   html5QrCode.start(
-    { facingMode: 'environment' },
-    { fps: 10, qrbox: { width: 260, height: 160 } },
+    videoConstraints,
+    { fps: 15, qrbox: { width: 280, height: 90 } },
     onScan, function(){}
   ).then(function(){
-    document.getElementById('startBtn').disabled = true;
-    document.getElementById('stopBtn').disabled = false;
-    setStatus('Kamera läuft – Barcode anvisieren.', '');
-  }).catch(function(err){
-    setStatus('Kamera-Fehler: ' + (err.name || err), 'err');
-  });
-};
-
-document.getElementById('stopBtn').onclick = function(){
-  if (!html5QrCode) return;
-  html5QrCode.stop().then(function(){
-    document.getElementById('startBtn').disabled = false;
-    document.getElementById('stopBtn').disabled = true;
-    setStatus('Gestoppt.', '');
-  });
-};
-</script>
-</body>
-</html>
