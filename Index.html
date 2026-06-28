@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Seriennummern-Scanner</title>
+<script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body { margin:0; font-family:-apple-system,system-ui,sans-serif; background:#0f172a; color:#e2e8f0; }
+  header { padding:14px 16px; font-size:17px; font-weight:600; background:#0F1987; }
+  #reader { width:100%; }
+  .bar { display:flex; gap:10px; padding:12px 16px; }
+  button { flex:1; padding:14px; font-size:16px; font-weight:600; border:none; border-radius:10px; color:#fff; }
+  #startBtn { background:#16a34a; }
+  #stopBtn  { background:#dc2626; }
+  button:disabled { opacity:.4; }
+  #status { margin:0 16px 8px; padding:12px 14px; border-radius:10px; background:#1e293b; font-size:15px; }
+  #status.ok  { background:#14532d; }
+  #status.dup { background:#78350f; }
+  #status.err { background:#7f1d1d; }
+  .count { padding:0 16px 8px; font-size:13px; color:#94a3b8; }
+  ul { list-style:none; margin:0; padding:0 16px 24px; }
+  li { padding:10px 12px; border-bottom:1px solid #1e293b; font-size:15px; display:flex; justify-content:space-between; }
+  li.dup .tag { color:#fbbf24; }
+  li.ok  .tag { color:#4ade80; }
+</style>
+</head>
+<body>
+<header>📷 Seriennummern-Scanner</header>
+<div id="reader"></div>
+<div class="bar">
+  <button id="startBtn">Scan starten</button>
+  <button id="stopBtn" disabled>Stopp</button>
+</div>
+<div id="status">Bereit. Auf „Scan starten" tippen.</div>
+<div class="count" id="count"></div>
+<ul id="list"></ul>
+
+<script>
+/*** Konfiguration ***/
+const APPS_SCRIPT_URL = 'HIER_DEINE_EXEC_URL';      // ...script.google.com/macros/s/.../exec
+const TOKEN           = 'DEIN_GEHEIMES_TOKEN_HIER'; // identisch zu SECRET im Code.gs
+
+let html5QrCode = null, lastCode = '', lastTime = 0, sessionCount = 0;
+
+const formats = [
+  Html5QrcodeSupportedFormats.CODE_128,
+  Html5QrcodeSupportedFormats.CODE_39,
+  Html5QrcodeSupportedFormats.CODE_93,
+  Html5QrcodeSupportedFormats.EAN_13,
+  Html5QrcodeSupportedFormats.EAN_8,
+  Html5QrcodeSupportedFormats.UPC_A,
+  Html5QrcodeSupportedFormats.ITF,
+  Html5QrcodeSupportedFormats.CODABAR,
+  Html5QrcodeSupportedFormats.QR_CODE
+];
+
+function setStatus(t, c){ const s=document.getElementById('status'); s.textContent=t; s.className=c||''; }
+
+/*** JSONP-Aufruf ans Apps Script (umgeht CORS) ***/
+function sendCode(code){
+  return new Promise(function(resolve, reject){
+    const cb = 'cb_' + Date.now() + '_' + Math.floor(Math.random()*1e6);
+    const script = document.createElement('script');
+    let done = false;
+    function cleanup(){ delete window[cb]; if (script.parentNode) script.parentNode.removeChild(script); }
+    const timeout = setTimeout(function(){ if(!done){ done=true; cleanup(); reject(new Error('Timeout')); } }, 12000);
+    window[cb] = function(data){ if(!done){ done=true; clearTimeout(timeout); cleanup(); resolve(data); } };
+    script.onerror = function(){ if(!done){ done=true; clearTimeout(timeout); cleanup(); reject(new Error('Netzwerkfehler')); } };
+    script.src = APPS_SCRIPT_URL + '?action=add'
+      + '&token=' + encodeURIComponent(TOKEN)
+      + '&code='  + encodeURIComponent(code)
+      + '&callback=' + cb;
+    document.body.appendChild(script);
+  });
+}
+
+function onScan(text){
+  const now = Date.now();
+  if (text === lastCode && now - lastTime < 3000) return;
+  lastCode = text; lastTime = now;
+  if (navigator.vibrate) navigator.vibrate(80);
+  setStatus('Speichere: ' + text, '');
+  sendCode(text)
+    .then(onSaved)
+    .catch(function(e){ setStatus('Fehler: ' + e.message, 'err'); });
+}
+
+function onSaved(res){
+  if (res.status === 'ok'){ setStatus('✓ Gespeichert: ' + res.code, 'ok'); addRow(res.code,'ok','✓'); sessionCount++; }
+  else if (res.status === 'duplicate'){ setStatus('⚠ Schon vorhanden: ' + res.code, 'dup'); addRow(res.code,'dup','Duplikat'); }
+  else if (res.status === 'error'){ setStatus('Abgelehnt: ' + (res.message||'Token falsch'), 'err'); }
+  document.getElementById('count').textContent = sessionCount + ' neu in dieser Sitzung';
+}
+
+function addRow(code, cls, tag){
+  const li = document.createElement('li'); li.className = cls;
+  li.innerHTML = '<span>' + code + '</span><span class="tag">' + tag + '</span>';
+  const list = document.getElementById('list'); list.insertBefore(li, list.firstChild);
+}
+
+document.getElementById('startBtn').onclick = function(){
+  setStatus('Frage Kamera an …', '');
+  html5QrCode = new Html5Qrcode('reader', { formatsToSupport: formats });
+  html5QrCode.start(
+    { facingMode: 'environment' },
+    { fps: 10, qrbox: { width: 260, height: 160 } },
+    onScan, function(){}
+  ).then(function(){
+    document.getElementById('startBtn').disabled = true;
+    document.getElementById('stopBtn').disabled = false;
+    setStatus('Kamera läuft – Barcode anvisieren.', '');
+  }).catch(function(err){
+    setStatus('Kamera-Fehler: ' + (err.name || err), 'err');
+  });
+};
+
+document.getElementById('stopBtn').onclick = function(){
+  if (!html5QrCode) return;
+  html5QrCode.stop().then(function(){
+    document.getElementById('startBtn').disabled = false;
+    document.getElementById('stopBtn').disabled = true;
+    setStatus('Gestoppt.', '');
+  });
+};
+</script>
+</body>
+</html>
