@@ -116,3 +116,33 @@ document.getElementById('startBtn').onclick = function(){
     { fps: 15, qrbox: { width: 280, height: 90 } },
     onScan, function(){}
   ).then(function(){
+    document.getElementById('startBtn').disabled = true;
+    document.getElementById('stopBtn').disabled = false;
+    document.getElementById('torchBtn').disabled = false;
+    setStatus('Kamera läuft – Barcode anvisieren.', '');
+  }).catch(function(err){
+    setStatus('Kamera-Fehler: ' + (err.name || err), 'err');
+  });
+};
+
+document.getElementById('stopBtn').onclick = function(){
+  if (!html5QrCode) return;
+  html5QrCode.stop().then(function(){
+    document.getElementById('startBtn').disabled = false;
+    document.getElementById('stopBtn').disabled = true;
+    const tb = document.getElementById('torchBtn');
+    tb.disabled = true; tb.classList.remove('on'); torchOn = false;
+    setStatus('Gestoppt.', '');
+  });
+};
+
+document.getElementById('torchBtn').onclick = function(){
+  if (!html5QrCode) return;
+  torchOn = !torchOn;
+  html5QrCode.applyVideoConstraints({ advanced: [{ torch: torchOn }] })
+    .then(function(){ document.getElementById('torchBtn').classList.toggle('on', torchOn); })
+    .catch(function(){ torchOn = !torchOn; setStatus('Taschenlampe nicht verfügbar.', 'err'); });
+};
+</script>
+</body>
+</html>
