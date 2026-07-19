@@ -4,6 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Seriennummern-Scanner</title>
+<meta name="theme-color" content="#0F1987">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
 <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <style>
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -46,6 +50,7 @@ const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbw4OK6t9DtZZZDh
 const TOKEN           = 'sn7Qe2vKptaX8';
 
 let html5QrCode = null, lastCode = '', lastTime = 0, sessionCount = 0, torchOn = false;
+let totalCount = null, audioCtx = null, flushing = false;
 
 const formats = [
   Html5QrcodeSupportedFormats.CODE_128,
@@ -57,6 +62,52 @@ const formats = [
 ];
 
 function setStatus(t, c){ const s=document.getElementById('status'); s.textContent=t; s.className=c||''; }
+
+/*** Signalton beim Scan ***/
+function initAudio(){
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+  } catch(e){}
+}
+function beep(){
+  if (!audioCtx) return;
+  try {
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    o.type = 'square'; o.frequency.value = 1400;
+    g.gain.setValueAtTime(0.15, audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.12);
+    o.connect(g); g.connect(audioCtx.destination);
+    o.start(); o.stop(audioCtx.currentTime + 0.12);
+  } catch(e){}
+}
+
+/*** Offline-Warteschlange: fehlgeschlagene Codes merken und nachsenden ***/
+const QUEUE_KEY = 'sn_offline_queue';
+function loadQueue(){ try { return JSON.parse(localStorage.getItem(QUEUE_KEY)) || []; } catch(e){ return []; } }
+function saveQueue(q){ try { localStorage.setItem(QUEUE_KEY, JSON.stringify(q)); } catch(e){} }
+function enqueue(code){ const q = loadQueue(); if (q.indexOf(code) === -1){ q.push(code); saveQueue(q); } updateCount(); }
+function flushQueue(){
+  if (flushing) return;
+  const q = loadQueue();
+  if (!q.length) return;
+  flushing = true;
+  sendCode(q[0]).then(function(res){
+    const q2 = loadQueue(), i = q2.indexOf(q[0]);
+    if (i !== -1){ q2.splice(i, 1); saveQueue(q2); }
+    flushing = false;
+    onSaved(res);
+    flushQueue();
+  }).catch(function(){ flushing = false; });
+}
+
+function updateCount(){
+  const parts = [sessionCount + ' neu in dieser Sitzung'];
+  if (totalCount !== null) parts.push(totalCount + ' gesamt');
+  const q = loadQueue();
+  if (q.length) parts.push(q.length + ' warten auf Upload');
+  document.getElementById('count').textContent = parts.join(' · ');
+}
 
 /*** JSONP-Aufruf ans Apps Script (umgeht CORS) ***/
 function sendCode(code){
@@ -81,17 +132,23 @@ function onScan(text){
   if (text === lastCode && now - lastTime < 3000) return;
   lastCode = text; lastTime = now;
   if (navigator.vibrate) navigator.vibrate(80);
+  beep();
   setStatus('Speichere: ' + text, '');
   sendCode(text)
     .then(onSaved)
-    .catch(function(e){ setStatus('Fehler: ' + e.message, 'err'); });
+    .catch(function(e){
+      enqueue(text);
+      setStatus('📡 Keine Verbindung – „' + text + '" gemerkt, wird automatisch nachgesendet.', 'dup');
+      addRow(text, 'dup', 'wartet');
+    });
 }
 
 function onSaved(res){
   if (res.status === 'ok'){ setStatus('✓ Gespeichert: ' + res.code, 'ok'); addRow(res.code,'ok','✓'); sessionCount++; }
   else if (res.status === 'duplicate'){ setStatus('⚠ Schon vorhanden: ' + res.code, 'dup'); addRow(res.code,'dup','Duplikat'); }
   else if (res.status === 'error'){ setStatus('Abgelehnt: ' + (res.message||'Token falsch'), 'err'); }
-  document.getElementById('count').textContent = sessionCount + ' neu in dieser Sitzung';
+  if (typeof res.count === 'number') totalCount = res.count;
+  updateCount();
 }
 
 function addRow(code, cls, tag){
@@ -101,6 +158,7 @@ function addRow(code, cls, tag){
 }
 
 document.getElementById('startBtn').onclick = function(){
+  initAudio();
   setStatus('Frage Kamera an …', '');
   html5QrCode = new Html5Qrcode('reader', { formatsToSupport: formats });
 
@@ -145,6 +203,11 @@ document.getElementById('torchBtn').onclick = function(){
     .then(function(){ document.getElementById('torchBtn').classList.toggle('on', torchOn); })
     .catch(function(){ torchOn = !torchOn; setStatus('Taschenlampe nicht verfügbar.', 'err'); });
 };
+
+window.addEventListener('online', flushQueue);
+setInterval(flushQueue, 15000);
+flushQueue();
+updateCount();
 </script>
 </body>
 </html>
