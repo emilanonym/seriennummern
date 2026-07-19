@@ -104,16 +104,18 @@ document.getElementById('startBtn').onclick = function(){
   setStatus('Frage Kamera an …', '');
   html5QrCode = new Html5Qrcode('reader', { formatsToSupport: formats });
 
-  const videoConstraints = {
-    facingMode: 'environment',
-    width:  { ideal: 1920 },
-    height: { ideal: 1080 },
-    advanced: [{ focusMode: 'continuous' }]
-  };
-
   html5QrCode.start(
-    videoConstraints,
-    { fps: 15, qrbox: { width: 280, height: 90 } },
+    { facingMode: 'environment' },
+    {
+      fps: 15,
+      qrbox: { width: 280, height: 90 },
+      videoConstraints: {
+        facingMode: 'environment',
+        width:  { ideal: 1920 },
+        height: { ideal: 1080 },
+        advanced: [{ focusMode: 'continuous' }]
+      }
+    },
     onScan, function(){}
   ).then(function(){
     document.getElementById('startBtn').disabled = true;
